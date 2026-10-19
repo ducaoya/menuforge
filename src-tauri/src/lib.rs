@@ -35,6 +35,17 @@ fn load_icons(keys: Vec<String>) -> HashMap<String, String> {
 }
 
 #[tauri::command]
+fn icons_in_file(path: String) -> Vec<icons::IconItem> {
+    icons::icons_in_file(&path, 120)
+}
+
+#[tauri::command]
+fn pick_icon_file(window: tauri::Window) -> Option<String> {
+    let hwnd = window.hwnd().map(|h| h.0 as *mut core::ffi::c_void).unwrap_or(std::ptr::null_mut());
+    icons::pick_file(hwnd)
+}
+
+#[tauri::command]
 fn set_many_enabled(targets: Vec<Target>, enabled: bool) -> Vec<String> {
     registry::set_many_enabled(&targets, enabled)
 }
@@ -134,6 +145,8 @@ pub fn run() {
             create_entry,
             set_entry_icon,
             load_icons,
+            icons_in_file,
+            pick_icon_file,
             set_many_enabled,
             delete_many,
             cleanup_invalid,

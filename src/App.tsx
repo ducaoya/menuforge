@@ -5,6 +5,7 @@ import {
   api,
   type BackupInfo,
   type Entry,
+  type IconItem,
   type NewEntry,
   SCOPES,
   type Target,
@@ -712,6 +713,111 @@ function Switch({
   );
 }
 
+const ICON_SOURCES: { path: string; label: string }[] = [
+  { path: "imageres.dll", label: "系统图标" },
+  { path: "shell32.dll", label: "Shell" },
+  { path: "explorer.exe", label: "资源管理器" },
+];
+
+function IconPicker({
+  value,
+  onChange,
+}: {
+  value: string;
+  onChange: (value: string) => void;
+}) {
+  const [sources, setSources] = useState(ICON_SOURCES);
+  const [source, setSource] = useState(ICON_SOURCES[0].path);
+  const [cache, setCache] = useState<Record<string, IconItem[]>>({});
+  const [loading, setLoading] = useState(false);
+  const [manual, setManual] = useState(value);
+
+  useEffect(() => {
+    if (cache[source]) return;
+    let alive = true;
+    setLoading(true);
+    api
+      .iconsInFile(source)
+      .then((list) => {
+        if (alive) setCache((prev) => ({ ...prev, [source]: list }));
+      })
+      .finally(() => {
+        if (alive) setLoading(false);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [source, cache]);
+
+  const pickFile = async () => {
+    const picked = await api.pickIconFile();
+    if (!picked) return;
+    const label = picked.split("\\").pop() ?? picked;
+    setSources((prev) =>
+      prev.some((s) => s.path === picked) ? prev : [...prev, { path: picked, label }],
+    );
+    setSource(picked);
+  };
+
+  const list = cache[source] ?? [];
+
+  return (
+    <div className="icon-picker">
+      <div className="icon-sources">
+        {sources.map((s) => (
+          <button
+            key={s.path}
+            type="button"
+            className={s.path === source ? "source-chip active" : "source-chip"}
+            title={s.path}
+            onClick={() => setSource(s.path)}
+          >
+            {s.label}
+          </button>
+        ))}
+        <button type="button" className="source-chip pick" onClick={pickFile}>
+          + 选择文件
+        </button>
+      </div>
+
+      <div className="icon-grid">
+        {loading && <div className="icon-grid-empty">读取中…</div>}
+        {!loading && list.length === 0 && (
+          <div className="icon-grid-empty">这个文件里没有可用图标</div>
+        )}
+        {!loading &&
+          list.map((it) => {
+            const spec = `${source},${it.index}`;
+            return (
+              <button
+                key={it.index}
+                type="button"
+                className={value === spec ? "icon-cell active" : "icon-cell"}
+                title={spec}
+                onClick={() => {
+                  onChange(spec);
+                  setManual(spec);
+                }}
+              >
+                <img src={it.data} alt="" draggable={false} />
+              </button>
+            );
+          })}
+      </div>
+
+      <input
+        className="field"
+        value={manual}
+        placeholder="也可以手填：C:\App\app.exe,3"
+        onChange={(e) => {
+          setManual(e.target.value);
+          onChange(e.target.value);
+        }}
+      />
+    </div>
+  );
+}
+
 function Select({
   value,
   options,
@@ -844,18 +950,10 @@ function IconDialog({
 }) {
   const [value, setValue] = useState(entry.icon);
   return (
-    <Sheet onClose={onClose}>
+    <Sheet onClose={onClose} wide>
       <h2>修改图标</h2>
-      <p className="sheet-text">
-        {entry.title} · 格式为文件路径加索引，例如 <code>C:\App\app.exe,0</code>
-      </p>
-      <input
-        className="field"
-        value={value}
-        autoFocus
-        placeholder="C:\App\app.exe,0"
-        onChange={(e) => setValue(e.target.value)}
-      />
+      <p className="sheet-text">{entry.title} · 选一个系统图标，或从文件里挑</p>
+      <IconPicker value={value} onChange={setValue} />
       <div className="sheet-actions">
         <button className="pill-btn" onClick={() => onSave("")} disabled={busy}>
           恢复默认
@@ -889,8 +987,25 @@ function CreateDialog({
     icon: "",
   });
   const [saving, setSaving] = useState(false);
+  const [showIcon, setShowIcon] = useState(false);
+  const [iconDraft, setIconDraft] = useState("");
+  const [preview, setPreview] = useState<string | undefined>(undefined);
 
   const set = (patch: Partial<NewEntry>) => setForm({ ...form, ...patch });
+
+  useEffect(() => {
+    if (!form.icon) {
+      setPreview(undefined);
+      return;
+    }
+    let alive = true;
+    api.icons([form.icon]).then((map) => {
+      if (alive) setPreview(map[form.icon]);
+    });
+    return () => {
+      alive = false;
+    };
+  }, [form.icon]);
 
   const submit = async () => {
     setSaving(true);
@@ -942,15 +1057,29 @@ function CreateDialog({
       </label>
 
       <div className="grid2">
-        <label className="field-label">
+        <div className="field-label">
           图标（可选）
-          <input
-            className="field"
-            value={form.icon}
-            placeholder="app.exe,0"
-            onChange={(e) => set({ icon: e.target.value })}
-          />
-        </label>
+          <div className="icon-field">
+            {preview ? (
+              <img src={preview} alt="" />
+            ) : (
+              <span className="icon-field-empty">默认</span>
+            )}
+            <span className="icon-field-value" title={form.icon}>
+              {form.icon || "未设置"}
+            </span>
+            <button
+              type="button"
+              className="pill-btn"
+              onClick={() => {
+                setIconDraft(form.icon);
+                setShowIcon(true);
+              }}
+            >
+              选择
+            </button>
+          </div>
+        </div>
         <label className="field-label">
           显示在
           <Select
@@ -972,6 +1101,33 @@ function CreateDialog({
           onChange={(v) => set({ hive: v })}
         />
       </label>
+
+      {showIcon && (
+        <Sheet onClose={() => setShowIcon(false)} wide>
+          <h2>选择图标</h2>
+          <IconPicker
+            value={iconDraft}
+            onChange={(v) => setIconDraft(v)}
+          />
+          <div className="sheet-actions">
+            <button className="pill-btn" onClick={() => setIconDraft("")}>
+              清除
+            </button>
+            <button className="pill-btn" onClick={() => setShowIcon(false)}>
+              取消
+            </button>
+            <button
+              className="pill-btn solid"
+              onClick={() => {
+                set({ icon: iconDraft });
+                setShowIcon(false);
+              }}
+            >
+              确定
+            </button>
+          </div>
+        </Sheet>
+      )}
 
       <div className="sheet-actions">
         <button className="pill-btn" onClick={onClose} disabled={saving}>

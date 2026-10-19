@@ -37,6 +37,11 @@ export type NewEntry = {
   icon: string;
 };
 
+export type IconItem = {
+  index: number;
+  data: string;
+};
+
 export type BackupInfo = {
   file: string;
   title: string;
@@ -57,6 +62,8 @@ export const api = {
   setIcon: (target: Target, icon: string) =>
     invoke<void>("set_entry_icon", { target, icon }),
   icons: (keys: string[]) => invoke<Record<string, string>>("load_icons", { keys }),
+  iconsInFile: (path: string) => invoke<IconItem[]>("icons_in_file", { path }),
+  pickIconFile: () => invoke<string | null>("pick_icon_file"),
   backups: () => invoke<BackupInfo[]>("list_backups"),
   restore: (file: string) => invoke<void>("restore_backup", { file }),
   deleteBackup: (file: string) => invoke<void>("delete_backup", { file }),

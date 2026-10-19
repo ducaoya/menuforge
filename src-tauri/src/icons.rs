@@ -6,6 +6,7 @@ use std::path::Path;
 use std::sync::{Mutex, OnceLock};
 
 use base64::Engine;
+use serde::Serialize;
 use windows_sys::Win32::Graphics::Gdi::{
     CreateCompatibleDC, DeleteDC, DeleteObject, GetDIBits, GetObjectW, BITMAP, BITMAPINFO, BI_RGB,
     DIB_RGB_COLORS,
@@ -298,4 +299,73 @@ unsafe fn read_mask(info: &ICONINFO, w: u32, h: u32) -> Option<Vec<bool>> {
         }
     }
     Some(out)
+}
+
+
+/* ---------- 图标选择器支持 ---------- */
+
+#[derive(Serialize)]
+pub struct IconItem {
+    pub index: i32,
+    pub data: String,
+}
+
+/// 列出某个 exe/dll/ico 里前 `limit` 个图标（带 PNG data URL）
+pub fn icons_in_file(path: &str, limit: usize) -> Vec<IconItem> {
+    let Some(real) = resolve_file(path) else {
+        return Vec::new();
+    };
+    let wpath = wide(&real);
+    let count = unsafe {
+        ExtractIconExW(
+            wpath.as_ptr(),
+            -1,
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+            0,
+        )
+    } as usize;
+    let count = count.min(limit);
+    let mut out = Vec::with_capacity(count);
+    for i in 0..count {
+        if let Some(data) = data_url(&key(&real, i as i32)) {
+            out.push(IconItem {
+                index: i as i32,
+                data,
+            });
+        }
+    }
+    out
+}
+
+/// 弹出系统文件选择框，只筛可能的图标/程序文件
+pub fn pick_file(owner: *mut core::ffi::c_void) -> Option<String> {
+    use windows_sys::Win32::UI::Controls::Dialogs::{
+        GetOpenFileNameW, OFN_FILEMUSTEXIST, OFN_HIDEREADONLY, OFN_PATHMUSTEXIST, OPENFILENAMEW,
+    };
+
+    let filter: Vec<u16> = "图标 / 程序 (*.exe;*.dll;*.ico;*.cpl;*.ocx;*.mun;*.icl) *.exe;*.dll;*.ico;*.cpl;*.ocx;*.mun;*.icl 所有文件 (*.*) *.*  "
+        .encode_utf16()
+        .collect();
+    let title: Vec<u16> = "选择图标文件 ".encode_utf16().collect();
+    let mut buf = vec![0u16; 1024];
+
+    let mut ofn: OPENFILENAMEW = unsafe { std::mem::zeroed() };
+    ofn.lStructSize = std::mem::size_of::<OPENFILENAMEW>() as u32;
+    ofn.hwndOwner = owner;
+    ofn.lpstrFilter = filter.as_ptr();
+    ofn.lpstrFile = buf.as_mut_ptr();
+    ofn.nMaxFile = buf.len() as u32;
+    ofn.lpstrTitle = title.as_ptr();
+    ofn.Flags = OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST | OFN_HIDEREADONLY;
+
+    let ok = unsafe { GetOpenFileNameW(&mut ofn) };
+    if ok == 0 {
+        return None;
+    }
+    let len = buf.iter().position(|&c| c == 0).unwrap_or(0);
+    if len == 0 {
+        return None;
+    }
+    Some(String::from_utf16_lossy(&buf[..len]))
 }
