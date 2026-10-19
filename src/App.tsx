@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { KeyboardEvent, ReactNode } from "react";
+import type { ReactNode } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import {
   api,
@@ -103,6 +103,16 @@ export default function App() {
     });
   }, [entries, scope, query]);
 
+  const groups = useMemo(() => {
+    const map = new Map<string, { e: Entry; i: number }[]>();
+    visible.forEach((e, i) => {
+      const arr = map.get(e.scope) ?? [];
+      arr.push({ e, i });
+      map.set(e.scope, arr);
+    });
+    return [...map.entries()];
+  }, [visible]);
+
   const selectedEntries = useMemo(
     () => entries.filter((e) => selected.has(keyOf(e))),
     [entries, selected],
@@ -110,8 +120,7 @@ export default function App() {
   const invalid = useMemo(() => entries.filter((e) => !e.valid), [entries]);
 
   const clickRow = (index: number, shift: boolean) => {
-    const e = visible[index];
-    const k = keyOf(e);
+    const k = keyOf(visible[index]);
     setSelected((prev) => {
       const next = new Set(prev);
       if (shift && anchor !== null) {
@@ -224,35 +233,35 @@ export default function App() {
     }
   };
 
-  const onKeyDown = (event: KeyboardEvent) => {
-    if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "a") {
-      if (tab === "menu" && document.activeElement?.tagName !== "INPUT") {
+  useEffect(() => {
+    const handler = (event: globalThis.KeyboardEvent) => {
+      const typing = document.activeElement?.tagName === "INPUT";
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "a" && !typing) {
         event.preventDefault();
         setSelected(new Set(visible.map(keyOf)));
       }
-    }
-    if (event.key === "Escape") setSelected(new Set());
-    if (event.key === "Delete" && selected.size > 0) {
-      setPendingDelete(selectedEntries.map(toTarget));
-    }
-  };
+      if (event.key === "Escape") setSelected(new Set());
+      if (event.key === "Delete" && selected.size > 0 && !typing) {
+        setPendingDelete(selectedEntries.map(toTarget));
+      }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [visible, selected, selectedEntries]);
 
   return (
-    <div className="app" onKeyDown={onKeyDown} tabIndex={0}>
+    <div className="app">
       <header className="titlebar" data-tauri-drag-region>
         <div className="brand" data-tauri-drag-region>
-          <span className="logo" data-tauri-drag-region />
+          <span className="brand-dot" data-tauri-drag-region />
           <span className="brand-name" data-tauri-drag-region>
             MenuForge
-          </span>
-          <span className="brand-sub" data-tauri-drag-region>
-            右键菜单管理器
           </span>
         </div>
         <div className="window-actions">
           <button className="win-btn" onClick={() => win.minimize()} title="最小化">
-            <svg width="11" height="11" viewBox="0 0 11 11">
-              <path d="M2 5.5h7" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
+            <svg width="10" height="10" viewBox="0 0 10 10">
+              <path d="M2 5h6" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
             </svg>
           </button>
           <button
@@ -262,13 +271,13 @@ export default function App() {
             }}
             title={maximized ? "还原" : "最大化"}
           >
-            <svg width="11" height="11" viewBox="0 0 11 11">
-              <rect x="2.2" y="2.2" width="6.6" height="6.6" rx="1.6" stroke="currentColor" strokeWidth="1.2" fill="none" />
+            <svg width="10" height="10" viewBox="0 0 10 10">
+              <rect x="2.4" y="2.4" width="5.2" height="5.2" rx="1.4" stroke="currentColor" strokeWidth="1.1" fill="none" />
             </svg>
           </button>
           <button className="win-btn close" onClick={() => win.close()} title="关闭">
-            <svg width="11" height="11" viewBox="0 0 11 11">
-              <path d="M2.6 2.6l5.8 5.8M8.4 2.6L2.6 8.4" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
+            <svg width="10" height="10" viewBox="0 0 10 10">
+              <path d="M2.6 2.6l4.8 4.8M7.4 2.6L2.6 7.4" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
             </svg>
           </button>
         </div>
@@ -297,27 +306,18 @@ export default function App() {
             ))}
           </nav>
 
-          <div className="side-cards">
-            <div className="glass-card">
-              <div className="card-title">
-                <span>Win11 完整菜单</span>
-                <Switch on={classic} onClick={flipClassic} disabled={busy} />
-              </div>
-              <p>{classic ? "当前为 Win10 风格完整菜单" : "当前为 Win11 精简菜单"}</p>
+          <div className="side-group">
+            <div className="side-row">
+              <span>Win11 完整菜单</span>
+              <Switch on={classic} onClick={flipClassic} disabled={busy} />
             </div>
-
-            <div className="glass-card">
-              <div className="card-title">
-                <span>权限</span>
-                <b className={admin ? "pill ok" : "pill warn"}>
-                  {admin ? "管理员" : "受限"}
-                </b>
-              </div>
+            <div className="side-row">
+              <span>权限</span>
               {admin ? (
-                <p>可修改系统级（HKLM）菜单项</p>
+                <b className="pill ok">管理员</b>
               ) : (
                 <button
-                  className="mini-btn"
+                  className="pill-btn"
                   onClick={() =>
                     api
                       .relaunch()
@@ -325,30 +325,25 @@ export default function App() {
                       .catch((e) => say("err", String(e)))
                   }
                 >
-                  以管理员身份重启
+                  提权
                 </button>
               )}
             </div>
-
-            <div className="glass-card">
-              <div className="card-title">
-                <span>失效项</span>
-                <b className={invalid.length ? "pill warn" : "pill ok"}>
-                  {invalid.length}
-                </b>
+            <div className="side-row">
+              <span>失效项</span>
+              <div className="side-value">
+                <b className={invalid.length ? "pill warn" : "pill ok"}>{invalid.length}</b>
+                {invalid.length > 0 && (
+                  <button className="pill-btn danger" onClick={cleanup} disabled={busy}>
+                    清理
+                  </button>
+                )}
               </div>
-              {invalid.length > 0 ? (
-                <button className="mini-btn danger" onClick={cleanup} disabled={busy}>
-                  一键清理（先备份）
-                </button>
-              ) : (
-                <p>所有菜单项均可用</p>
-              )}
             </div>
           </div>
 
           <button className="primary-btn" onClick={() => setShowCreate(true)}>
-            <span>＋</span> 新建菜单项
+            新建菜单项
           </button>
         </aside>
 
@@ -369,191 +364,210 @@ export default function App() {
               </button>
             </div>
 
-            {tab === "menu" && (
+            {tab === "menu" && selected.size > 0 ? (
+              <div className="selection">
+                <span className="selection-label">已选</span>
+                <span className="selection-count">{selected.size}</span>
+                <div className="selection-actions">
+                  <button className="pill-btn" onClick={() => setMany(true)} disabled={busy}>
+                    启用
+                  </button>
+                  <button className="pill-btn" onClick={() => setMany(false)} disabled={busy}>
+                    禁用
+                  </button>
+                  <button
+                    className="pill-btn danger"
+                    onClick={() => setPendingDelete(selectedEntries.map(toTarget))}
+                    disabled={busy}
+                  >
+                    删除
+                  </button>
+                  <button
+                    className="icon-btn"
+                    onClick={() => setSelected(new Set())}
+                    title="取消选择"
+                  >
+                    <svg width="10" height="10" viewBox="0 0 10 10">
+                      <path d="M2.4 2.4l5.2 5.2M7.6 2.4L2.4 7.6" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
+                    </svg>
+                  </button>
+                </div>
+              </div>
+            ) : tab === "menu" ? (
               <>
                 <div className="search-wrap">
-                  <svg width="14" height="14" viewBox="0 0 14 14" className="search-icon">
-                    <circle cx="6.2" cy="6.2" r="4.2" stroke="currentColor" strokeWidth="1.4" fill="none" />
-                    <path d="M9.5 9.5L12.5 12.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+                  <svg width="13" height="13" viewBox="0 0 14 14" className="search-icon">
+                    <circle cx="6.2" cy="6.2" r="4.1" stroke="currentColor" strokeWidth="1.5" fill="none" />
+                    <path d="M9.4 9.4L12.4 12.4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
                   </svg>
                   <input
                     className="search"
-                    placeholder="搜索名称 / 命令"
+                    placeholder="搜索"
                     value={query}
                     onChange={(e) => setQuery(e.target.value)}
                   />
                 </div>
-                <div className="toolbar-actions">
-                  <button className="ghost-btn" onClick={() => (load(), loadBackups())} disabled={busy}>
-                    刷新
-                  </button>
-                </div>
+                <button className="icon-btn refresh" onClick={() => (load(), loadBackups())} disabled={busy} title="刷新">
+                  <svg width="13" height="13" viewBox="0 0 14 14">
+                    <path
+                      d="M11.4 5.6a4.6 4.6 0 1 0 .2 2.6M11.6 2.6v3.2H8.4"
+                      stroke="currentColor"
+                      strokeWidth="1.4"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      fill="none"
+                    />
+                  </svg>
+                </button>
               </>
-            )}
+            ) : null}
           </div>
-
-          {tab === "menu" && selected.size > 0 && (
-            <div className="batch-bar">
-              <label className="check">
-                <input
-                  type="checkbox"
-                  checked={selected.size === visible.length && visible.length > 0}
-                  onChange={(e) =>
-                    setSelected(e.target.checked ? new Set(visible.map(keyOf)) : new Set())
-                  }
-                />
-                已选 {selected.size} 项
-              </label>
-              <div className="batch-actions">
-                <button className="ghost-btn" onClick={() => setMany(true)} disabled={busy}>
-                  启用
-                </button>
-                <button className="ghost-btn" onClick={() => setMany(false)} disabled={busy}>
-                  禁用
-                </button>
-                <button
-                  className="ghost-btn danger"
-                  onClick={() => setPendingDelete(selectedEntries.map(toTarget))}
-                  disabled={busy}
-                >
-                  删除
-                </button>
-                <button className="ghost-btn" onClick={() => setSelected(new Set())}>
-                  取消
-                </button>
-              </div>
-            </div>
-          )}
 
           {tab === "menu" ? (
             <div className="list" ref={listRef}>
               {loading && <div className="empty">正在读取注册表…</div>}
-              {!loading && visible.length === 0 && (
-                <div className="empty">没有匹配的菜单项</div>
-              )}
-              {visible.map((e, i) => {
-                const k = keyOf(e);
-                const isSel = selected.has(k);
-                const locked = !e.writable;
-                return (
-                  <div
-                    className={[
-                      "row",
-                      e.enabled ? "" : "off",
-                      isSel ? "selected" : "",
-                      e.valid ? "" : "invalid",
-                    ]
-                      .filter(Boolean)
-                      .join(" ")}
-                    key={k}
-                    onClick={(ev) => {
-                      if ((ev.target as HTMLElement).closest("button,input")) return;
-                      clickRow(i, ev.shiftKey);
-                    }}
-                  >
-                    <label className="row-check" onClick={(ev) => ev.stopPropagation()}>
-                      <input
-                        type="checkbox"
-                        checked={isSel}
-                        onChange={() =>
-                          setSelected((prev) => {
-                            const next = new Set(prev);
-                            if (next.has(k)) next.delete(k);
-                            else next.add(k);
-                            return next;
-                          })
-                        }
-                      />
-                    </label>
+              {!loading && visible.length === 0 && <div className="empty">没有匹配的菜单项</div>}
+              {groups.map(([scopeId, items]) => (
+                <section className="group" key={scopeId}>
+                  {scope === "*" && <h3 className="group-title">{scopeLabel(scopeId)}</h3>}
+                  <div className="group-body">
+                    {items.map(({ e, i }) => {
+                      const k = keyOf(e);
+                      const isSel = selected.has(k);
+                      const locked = !e.writable;
+                      return (
+                        <div
+                          className={[
+                            "row",
+                            e.enabled ? "" : "off",
+                            isSel ? "selected" : "",
+                            e.valid ? "" : "invalid",
+                          ]
+                            .filter(Boolean)
+                            .join(" ")}
+                          key={k}
+                          onClick={(ev) => {
+                            if ((ev.target as HTMLElement).closest("button,input")) return;
+                            clickRow(i, ev.shiftKey);
+                          }}
+                        >
+                          <label className="row-check" onClick={(ev) => ev.stopPropagation()}>
+                            <input
+                              type="checkbox"
+                              checked={isSel}
+                              onChange={() =>
+                                setSelected((prev) => {
+                                  const next = new Set(prev);
+                                  if (next.has(k)) next.delete(k);
+                                  else next.add(k);
+                                  return next;
+                                })
+                              }
+                            />
+                          </label>
 
-                    <button
-                      className="icon-tile"
-                      title={e.kind === "handler" ? "Shell 扩展的图标由 DLL 提供" : "点击修改图标"}
-                      onClick={(ev) => {
-                        ev.stopPropagation();
-                        if (e.kind === "handler") {
-                          say("err", "Shell 扩展的图标由它自己的 DLL 提供，不能在这里改");
-                          return;
-                        }
-                        setEditingIcon(e);
-                      }}
-                    >
-                      {icons[e.icon_key] ? (
-                        <img src={icons[e.icon_key]} alt="" draggable={false} />
-                      ) : (
-                        <span className="icon-fallback">{e.title.slice(0, 1)}</span>
-                      )}
-                    </button>
+                          <button
+                            className="icon-tile"
+                            title={
+                              e.kind === "handler" ? "图标由扩展 DLL 提供" : "点击修改图标"
+                            }
+                            onClick={(ev) => {
+                              ev.stopPropagation();
+                              if (e.kind === "handler") {
+                                say("err", "Shell 扩展的图标由它自己的 DLL 提供，不能在这里改");
+                                return;
+                              }
+                              setEditingIcon(e);
+                            }}
+                          >
+                            {icons[e.icon_key] ? (
+                              <img src={icons[e.icon_key]} alt="" draggable={false} />
+                            ) : (
+                              <span className="icon-fallback">{e.title.slice(0, 1)}</span>
+                            )}
+                          </button>
 
-                    <div className="row-main">
-                      <div className="row-title-line">
-                        <span className="row-title">{e.title}</span>
-                        {!e.valid && <span className="tag warn">失效</span>}
-                        {e.kind === "handler" && <span className="tag soft">Shell 扩展</span>}
-                        {e.shift_only && <span className="tag">Shift</span>}
-                        {e.needs_admin && <span className="tag">提权</span>}
-                        {e.submenu && <span className="tag">子菜单</span>}
-                      </div>
-                      <div className="row-sub" title={e.valid ? e.command || e.path : e.invalid_reason}>
-                        {e.valid ? e.command || e.path : e.invalid_reason}
-                      </div>
-                    </div>
+                          <div className="row-main">
+                            <div className="row-title-line">
+                              <span className="row-title">{e.title}</span>
+                              {!e.valid && <span className="tag warn">失效</span>}
+                              {e.kind === "handler" && <span className="tag soft">扩展</span>}
+                              {e.shift_only && <span className="tag">Shift</span>}
+                              {e.needs_admin && <span className="tag">提权</span>}
+                            </div>
+                            <div
+                              className="row-sub"
+                              title={e.valid ? e.command || e.path : e.invalid_reason}
+                            >
+                              {e.valid ? e.command || e.path : e.invalid_reason}
+                            </div>
+                          </div>
 
-                    <div className="row-meta">
-                      <span className={e.hive === "HKLM" ? "hive sys" : "hive user"}>{e.hive}</span>
-                      <span className="scope">{scopeLabel(e.scope)}</span>
-                    </div>
+                          <div className="row-meta">
+                            <span className={e.hive === "HKLM" ? "hive sys" : "hive user"}>
+                              {e.hive === "HKLM" ? "系统" : "用户"}
+                            </span>
+                          </div>
 
-                    <div className="row-actions">
-                      <Switch
-                        on={e.enabled}
-                        disabled={busy || locked}
-                        title={locked ? "需要管理员权限" : e.enabled ? "禁用" : "启用"}
-                        onClick={() => toggle(e)}
-                      />
-                      <button
-                        className="del-btn"
-                        title={locked ? "需要管理员权限" : "删除（自动备份）"}
-                        disabled={locked || busy}
-                        onClick={(ev) => {
-                          ev.stopPropagation();
-                          setPendingDelete([toTarget(e)]);
-                        }}
-                      >
-                        <svg width="12" height="12" viewBox="0 0 12 12">
-                          <path d="M2.8 2.8l6.4 6.4M9.2 2.8l-6.4 6.4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-                        </svg>
-                      </button>
-                    </div>
+                          <div className="row-actions">
+                            <Switch
+                              on={e.enabled}
+                              disabled={busy || locked}
+                              title={locked ? "需要管理员权限" : e.enabled ? "禁用" : "启用"}
+                              onClick={() => toggle(e)}
+                            />
+                            <button
+                              className="del-btn"
+                              title={locked ? "需要管理员权限" : "删除（自动备份）"}
+                              disabled={locked || busy}
+                              onClick={(ev) => {
+                                ev.stopPropagation();
+                                setPendingDelete([toTarget(e)]);
+                              }}
+                            >
+                              <svg width="11" height="11" viewBox="0 0 12 12">
+                                <path d="M3 3l6 6M9 3l-6 6" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+                              </svg>
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })}
                   </div>
-                );
-              })}
+                </section>
+              ))}
             </div>
           ) : (
             <div className="list">
-              {backups.length === 0 && (
+              {backups.length === 0 ? (
                 <div className="empty">
-                  还没有备份。删除菜单项时会自动备份到
+                  还没有备份
                   <br />
-                  %APPDATA%\MenuForge\backups
+                  删除菜单项时会自动备份到 %APPDATA%\MenuForge\backups
                 </div>
+              ) : (
+                <section className="group">
+                  <h3 className="group-title">已备份的菜单项</h3>
+                  <div className="group-body">
+                    {backups.map((b) => (
+                      <div className="row" key={b.file}>
+                        <div className="row-main backup-main">
+                          <div className="row-title-line">
+                            <span className="row-title">{b.title}</span>
+                            <span className="tag">{new Date(b.created * 1000).toLocaleString()}</span>
+                          </div>
+                          <div className="row-sub">{b.path}</div>
+                        </div>
+                        <div className="row-actions">
+                          <button className="pill-btn" onClick={() => restore(b.file)} disabled={busy}>
+                            恢复
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </section>
               )}
-              {backups.map((b) => (
-                <div className="row" key={b.file}>
-                  <div className="row-main">
-                    <div className="row-title-line">
-                      <span className="row-title">{b.title}</span>
-                      <span className="tag">{new Date(b.created * 1000).toLocaleString()}</span>
-                    </div>
-                    <div className="row-sub">{b.path}</div>
-                  </div>
-                  <div className="row-actions">
-                    <button className="ghost-btn" onClick={() => restore(b.file)} disabled={busy}>
-                      恢复
-                    </button>
-                  </div>
-                </div>
-              ))}
             </div>
           )}
         </main>
@@ -582,7 +596,9 @@ export default function App() {
 
       {pendingDelete && (
         <ConfirmDialog
-          title={pendingDelete.length > 1 ? `删除 ${pendingDelete.length} 个菜单项？` : "删除这个菜单项？"}
+          title={
+            pendingDelete.length > 1 ? `删除 ${pendingDelete.length} 个菜单项？` : "删除这个菜单项？"
+          }
           body="删除前会自动备份，可在「备份」页恢复。"
           confirmText="删除"
           danger
@@ -664,11 +680,11 @@ function ConfirmDialog({
       <h2>{title}</h2>
       <p className="sheet-text">{body}</p>
       <div className="sheet-actions">
-        <button className="ghost-btn" onClick={onCancel} disabled={busy}>
+        <button className="pill-btn" onClick={onCancel} disabled={busy}>
           取消
         </button>
         <button
-          className={danger ? "primary-btn danger" : "primary-btn"}
+          className={danger ? "pill-btn danger solid" : "pill-btn solid"}
           onClick={onConfirm}
           disabled={busy}
         >
@@ -695,8 +711,7 @@ function IconDialog({
     <Sheet onClose={onClose}>
       <h2>修改图标</h2>
       <p className="sheet-text">
-        {entry.title} · 支持 exe/dll 路径加索引，例如
-        <code>C:\App\app.exe,0</code> 或 <code>%SystemRoot%\system32\shell32.dll,3</code>
+        {entry.title} · 格式为文件路径加索引，例如 <code>C:\App\app.exe,0</code>
       </p>
       <input
         className="field"
@@ -706,13 +721,13 @@ function IconDialog({
         onChange={(e) => setValue(e.target.value)}
       />
       <div className="sheet-actions">
-        <button className="ghost-btn" onClick={() => onSave("")} disabled={busy}>
+        <button className="pill-btn" onClick={() => onSave("")} disabled={busy}>
           恢复默认
         </button>
-        <button className="ghost-btn" onClick={onClose} disabled={busy}>
+        <button className="pill-btn" onClick={onClose} disabled={busy}>
           取消
         </button>
-        <button className="primary-btn" onClick={() => onSave(value)} disabled={busy}>
+        <button className="pill-btn solid" onClick={() => onSave(value)} disabled={busy}>
           保存
         </button>
       </div>
@@ -757,17 +772,6 @@ function CreateDialog({
     <Sheet onClose={onClose} wide>
       <h2>新建菜单项</h2>
 
-      <label className="field-label">
-        显示在
-        <select className="field" value={form.scope} onChange={(e) => set({ scope: e.target.value })}>
-          {SCOPES.map((s) => (
-            <option key={s.id} value={s.id}>
-              {s.label} — {s.hint}
-            </option>
-          ))}
-        </select>
-      </label>
-
       <div className="grid2">
         <label className="field-label">
           显示名称
@@ -775,7 +779,9 @@ function CreateDialog({
             className="field"
             value={form.title}
             placeholder="用 MenuForge 打开"
-            onChange={(e) => set({ title: e.target.value, name: form.name || slug(e.target.value) })}
+            onChange={(e) =>
+              set({ title: e.target.value, name: form.name || slug(e.target.value) })
+            }
           />
         </label>
         <label className="field-label">
@@ -799,30 +805,42 @@ function CreateDialog({
         />
       </label>
 
-      <label className="field-label">
-        图标（可选）
-        <input
-          className="field"
-          value={form.icon}
-          placeholder="C:\Program Files\App\app.exe,0"
-          onChange={(e) => set({ icon: e.target.value })}
-        />
-      </label>
+      <div className="grid2">
+        <label className="field-label">
+          图标（可选）
+          <input
+            className="field"
+            value={form.icon}
+            placeholder="app.exe,0"
+            onChange={(e) => set({ icon: e.target.value })}
+          />
+        </label>
+        <label className="field-label">
+          显示在
+          <select className="field" value={form.scope} onChange={(e) => set({ scope: e.target.value })}>
+            {SCOPES.map((s) => (
+              <option key={s.id} value={s.id}>
+                {s.label}
+              </option>
+            ))}
+          </select>
+        </label>
+      </div>
 
       <label className="field-label">
         写入位置
         <select className="field" value={form.hive} onChange={(e) => set({ hive: e.target.value })}>
-          <option value="HKCU">当前用户（HKCU，无需管理员）</option>
-          <option value="HKLM">所有用户（HKLM，需要管理员）</option>
+          <option value="HKCU">当前用户（无需管理员）</option>
+          <option value="HKLM">所有用户（需要管理员）</option>
         </select>
       </label>
 
       <div className="sheet-actions">
-        <button className="ghost-btn" onClick={onClose} disabled={saving}>
+        <button className="pill-btn" onClick={onClose} disabled={saving}>
           取消
         </button>
         <button
-          className="primary-btn"
+          className="pill-btn solid"
           onClick={submit}
           disabled={saving || !form.title || !form.command}
         >

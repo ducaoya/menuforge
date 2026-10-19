@@ -17,8 +17,14 @@
 
 ## 界面
 
-- 无边框窗口 + DWM Acrylic 背景（`windowEffects: acrylic`），CSS 手写液态玻璃层次：多层半透明渐变、内高光描边、iOS 风格开关与分段控件、弹性缓动 `cubic-bezier(.32,.72,0,1)`
-- 自绘标题栏（拖拽 / 最小化 / 最大化 / 关闭），`data-tauri-drag-region` + `core:window:*` 权限
+按 iOS 26 液态玻璃的思路重做：
+
+- 无边框窗口 + DWM Acrylic；程序启动时用 `DwmSetWindowAttribute` 关掉系统圆角（`DWMWCP_DONOTROUND`）和系统 1px 边框（`DWMWA_COLOR_NONE`），窗口形状完全由 CSS 的 26px 圆角决定，不会再出现「内层圆角大于外框圆角」的硬边
+- 玻璃分三层：底层暖冷光晕（蓝/紫/绿径向渐变）+ 半透明基色 + 顶部白色高光，配合 `backdrop-filter: blur(40px) saturate(180%)`
+- 列表改成 iOS inset grouped：分组标题 + 单块半透明容器 + 行间 0.5px 分隔线（左侧对齐图标后），不再是一行一张卡片
+- 全部换成 iOS 系统色板（`#0A84FF` / `#34C759` / `#FF453A` / `#FF9F0A`）、胶囊按钮、iOS 比例开关（44×27）、圆形勾选
+- 标题栏只留一个渐变圆点 + `MenuForge`，右侧自绘最小化/最大化/关闭
+- 多选状态不额外占一行：选中后「已选 N + 启用/禁用/删除/取消」直接替换工具栏里的搜索框区域
 
 ## 体积
 

@@ -79,9 +79,49 @@ fn relaunch_as_admin() -> Result<(), String> {
     registry::relaunch_as_admin()
 }
 
+#[cfg(windows)]
+fn tune_window(window: &tauri::WebviewWindow) {
+    use std::ffi::c_void;
+    use windows_sys::Win32::Graphics::Dwm::{
+        DwmSetWindowAttribute, DWMWA_BORDER_COLOR, DWMWA_WINDOW_CORNER_PREFERENCE,
+    };
+    // 系统圆角/边框与 CSS 圆角打架，全部交给 CSS，这里关掉
+    const DWMWCP_DONOTROUND: u32 = 1;
+    const DWMWA_COLOR_NONE: u32 = 0xFFFF_FFFE;
+    if let Ok(hwnd) = window.hwnd() {
+        let h = hwnd.0 as *mut c_void;
+        unsafe {
+            let preferred: u32 = DWMWCP_DONOTROUND;
+            DwmSetWindowAttribute(
+                h,
+                DWMWA_WINDOW_CORNER_PREFERENCE as u32,
+                &preferred as *const _ as *const c_void,
+                4,
+            );
+            let border: u32 = DWMWA_COLOR_NONE;
+            DwmSetWindowAttribute(
+                h,
+                DWMWA_BORDER_COLOR as u32,
+                &border as *const _ as *const c_void,
+                4,
+            );
+        }
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .setup(|app| {
+            #[cfg(windows)]
+            {
+                use tauri::Manager;
+                if let Some(w) = app.get_webview_window("main") {
+                    tune_window(&w);
+                }
+            }
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
             list_entries,
             set_entry_enabled,

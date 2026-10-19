@@ -21,6 +21,7 @@
         "theme": "Dark",
         "transparent": true,
         "decorations": false,
+        "shadow": false,
         "windowEffects": {
           "effects": ["acrylic"],
           "state": "active"
