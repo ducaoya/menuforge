@@ -13,13 +13,18 @@
     "windows": [
       {
         "title": "MenuForge · 右键菜单管理器",
-        "width": 1120,
-        "height": 740,
-        "minWidth": 900,
-        "minHeight": 600,
+        "width": 1180,
+        "height": 780,
+        "minWidth": 980,
+        "minHeight": 660,
         "center": true,
         "theme": "Dark",
-        "backgroundColor": "#0d0f13"
+        "transparent": true,
+        "decorations": false,
+        "windowEffects": {
+          "effects": ["acrylic"],
+          "state": "active"
+        }
       }
     ],
     "security": {

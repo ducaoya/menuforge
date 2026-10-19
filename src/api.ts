@@ -9,12 +9,15 @@ export type Entry = {
   title: string;
   command: string;
   icon: string;
+  icon_key: string;
   enabled: boolean;
   clsid: string;
   shift_only: boolean;
   needs_admin: boolean;
   submenu: boolean;
   writable: boolean;
+  valid: boolean;
+  invalid_reason: string;
 };
 
 export type Target = {
@@ -45,8 +48,15 @@ export const api = {
   list: () => invoke<Entry[]>("list_entries"),
   toggle: (target: Target, enabled: boolean) =>
     invoke<void>("set_entry_enabled", { target, enabled }),
+  toggleMany: (targets: Target[], enabled: boolean) =>
+    invoke<string[]>("set_many_enabled", { targets, enabled }),
   remove: (target: Target) => invoke<void>("delete_entry", { target }),
+  removeMany: (targets: Target[]) => invoke<string[]>("delete_many", { targets }),
+  cleanupInvalid: () => invoke<[number, string[]]>("cleanup_invalid"),
   create: (entry: NewEntry) => invoke<void>("create_entry", { entry }),
+  setIcon: (target: Target, icon: string) =>
+    invoke<void>("set_entry_icon", { target, icon }),
+  icons: (keys: string[]) => invoke<Record<string, string>>("load_icons", { keys }),
   backups: () => invoke<BackupInfo[]>("list_backups"),
   restore: (file: string) => invoke<void>("restore_backup", { file }),
   win11Classic: () => invoke<boolean>("win11_classic"),

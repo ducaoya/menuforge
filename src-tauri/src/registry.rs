@@ -198,12 +198,15 @@ pub struct Entry {
     pub title: String,
     pub command: String,
     pub icon: String,
+    pub icon_key: String,
     pub enabled: bool,
     pub clsid: String,
     pub shift_only: bool,
     pub needs_admin: bool,
     pub submenu: bool,
     pub writable: bool,
+    pub valid: bool,
+    pub invalid_reason: String,
 }
 
 fn prettify(name: &str) -> String {
@@ -239,10 +242,96 @@ fn clsid_title(clsid: &str) -> Option<String> {
     None
 }
 
+fn default_icon(clsid: &str) -> Option<String> {
+    if clsid.is_empty() {
+        return None;
+    }
+    for hive in ["HKLM", "HKCU"] {
+        if let Ok(key) = open(hive, &format!("CLSID\\{clsid}\\DefaultIcon")) {
+            if let Some(v) = value_str(&key, "") {
+                return Some(v);
+            }
+        }
+    }
+    None
+}
+
+fn clsid_dll(clsid: &str) -> Option<String> {
+    if clsid.is_empty() {
+        return None;
+    }
+    for hive in ["HKLM", "HKCU"] {
+        if let Ok(key) = open(hive, &format!("CLSID\\{clsid}\\InprocServer32")) {
+            if let Some(v) = value_str(&key, "") {
+                if !v.trim().is_empty() {
+                    return Some(v);
+                }
+            }
+        }
+    }
+    None
+}
+
+fn icon_source(icon_value: &str, command: &str, clsid: &str, kind: &str) -> Option<(String, i32)> {
+    if let Some(pair) = crate::icons::parse_spec(icon_value) {
+        return Some(pair);
+    }
+    if kind == "handler" {
+        if let Some(spec) = default_icon(clsid) {
+            if let Some(pair) = crate::icons::parse_spec(&spec) {
+                return Some(pair);
+            }
+        }
+        // 扩展自身 DLL 的第 0 个图标
+        if let Some(dll) = clsid_dll(clsid) {
+            if let Some(pair) = crate::icons::parse_spec(&dll) {
+                return Some(pair);
+            }
+        }
+    }
+    crate::icons::command_exe(command).map(|exe| (exe, 0))
+}
+
+fn validate(
+    kind: &str,
+    command: &str,
+    clsid: &str,
+    submenu: bool,
+    modern: bool,
+) -> Option<String> {
+    if kind == "handler" {
+        if clsid.is_empty() {
+            return Some("无法识别扩展 CLSID".into());
+        }
+        let registered = ["HKLM", "HKCU"]
+            .iter()
+            .any(|h| open(h, &format!("CLSID\\{clsid}")).is_ok());
+        if !registered {
+            return Some("扩展未注册（CLSID 缺失）".into());
+        }
+        return None;
+    }
+    if modern || submenu {
+        return None;
+    }
+    if command.trim().is_empty() {
+        return Some("缺少 command 子项".into());
+    }
+    let target = crate::icons::first_token(command);
+    if target.is_empty() {
+        return Some("命令为空".into());
+    }
+    if crate::icons::command_exe(command).is_none() {
+        return Some(format!("程序不存在：{target}"));
+    }
+    None
+}
+
 fn build_entry(hive: &str, scope: &str, rel: &str, kind: &str, name: &str, admin: bool) -> Option<Entry> {
     let key = open(hive, rel).ok()?;
     let mut command = String::new();
     let mut icon = String::new();
+    let mut delegated = false;
     let clsid;
     let mut title;
 
@@ -252,6 +341,8 @@ fn build_entry(hive: &str, scope: &str, rel: &str, kind: &str, name: &str, admin
             .unwrap_or_else(|| name.to_string());
         if let Ok(cmd) = open(hive, &format!("{rel}\\command")) {
             command = value_str(&cmd, "").unwrap_or_default();
+            delegated = cmd.get_raw_value("DelegateExecute").is_ok()
+                || cmd.get_raw_value("ExplorerCommandHandler").is_ok();
         }
         icon = value_str(&key, "Icon").unwrap_or_default();
         clsid = value_str(&key, "CLSID").unwrap_or_default();
@@ -293,6 +384,20 @@ fn build_entry(hive: &str, scope: &str, rel: &str, kind: &str, name: &str, admin
     let submenu = key.get_raw_value("SubCommands").is_ok()
         || key.get_raw_value("ExtendedSubCommandsKey").is_ok()
         || key.open_subkey("shell").is_ok();
+    let has_clsid_subkey = key.enum_keys().flatten().any(|sub| sub.trim_start().starts_with('{'));
+    let drag_only = key.open_subkey("DropTarget").is_ok()
+        || key.get_raw_value("ProgrammaticAccessOnly").is_ok();
+    let modern = delegated
+        || drag_only
+        || key.get_raw_value("ExplorerCommandHandler").is_ok()
+        || key.get_raw_value("DelegateExecute").is_ok()
+        || !clsid.is_empty()
+        || has_clsid_subkey;
+
+    let icon_key = icon_source(&icon, &command, &clsid, kind)
+        .map(|(p, i)| crate::icons::key(&p, i))
+        .unwrap_or_default();
+    let invalid = validate(kind, &command, &clsid, submenu, modern);
 
     Some(Entry {
         hive: hive.to_string(),
@@ -303,12 +408,15 @@ fn build_entry(hive: &str, scope: &str, rel: &str, kind: &str, name: &str, admin
         title,
         command: command.clone(),
         icon,
+        icon_key,
         enabled,
         clsid,
         shift_only: key.get_raw_value("Extended").is_ok(),
         needs_admin: command.to_lowercase().contains("runas"),
         submenu,
         writable: admin || hive == "HKCU",
+        valid: invalid.is_none(),
+        invalid_reason: invalid.unwrap_or_default(),
     })
 }
 
@@ -522,6 +630,66 @@ pub fn create_entry(n: &NewEntry) -> Result<(), String> {
     Ok(())
 }
 
+/* ---------- 图标 ---------- */
+
+pub fn set_icon(t: &Target, icon: &str) -> Result<(), String> {
+    let key = hive_key(&t.hive)
+        .open_subkey_with_flags(format!("{CLASSES}\\{}", t.path), write_flags())
+        .map_err(|e| format!("打开注册表项失败（HKLM 需要管理员权限）：{e}"))?;
+    if icon.trim().is_empty() {
+        match key.delete_value("Icon") {
+            Ok(_) => Ok(()),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+            Err(e) => Err(e.to_string()),
+        }
+    } else {
+        key.set_value("Icon", &icon.trim())
+            .map_err(|e| format!("写入图标失败：{e}"))
+    }
+}
+
+pub fn load_icons(keys: &[String]) -> std::collections::HashMap<String, String> {
+    crate::icons::load(keys)
+}
+
+/* ---------- 批量操作 ---------- */
+
+fn to_target(e: &Entry) -> Target {
+    Target {
+        hive: e.hive.clone(),
+        path: e.path.clone(),
+        kind: e.kind.clone(),
+        name: e.name.clone(),
+        clsid: e.clsid.clone(),
+    }
+}
+
+pub fn set_many_enabled(targets: &[Target], enabled: bool) -> Vec<String> {
+    targets
+        .iter()
+        .filter_map(|t| set_enabled(t, enabled).err().map(|err| format!("{} {}", t.name, err)))
+        .collect()
+}
+
+pub fn delete_many(targets: &[Target]) -> Vec<String> {
+    targets
+        .iter()
+        .filter_map(|t| delete_entry(t).err().map(|err| format!("{} {}", t.name, err)))
+        .collect()
+}
+
+/// 删除所有失效项，返回（成功数, 错误列表）
+pub fn cleanup_invalid() -> (usize, Vec<String>) {
+    let targets: Vec<Target> = list_entries()
+        .iter()
+        .filter(|e| !e.valid && e.writable)
+        .map(to_target)
+        .collect();
+    let total = targets.len();
+    let errors = delete_many(&targets);
+    (total - errors.len(), errors)
+}
+
 /* ---------- Windows 11 classic context menu ---------- */
 
 pub fn win11_classic() -> bool {
@@ -564,10 +732,10 @@ pub fn relaunch_as_admin() -> Result<(), String> {
     // 发布版：提权实例接管后退出本进程。
     // dev 模式：不能退出——`tauri dev` 会连同 vite dev server 一起结束，
     // 提权后的实例就再也拉不到 devUrl，只剩白屏 / 拒绝连接。
-    #[cfg(not(debug_assertions))]
+    if cfg!(debug_assertions) {
+        return Ok(());
+    }
     std::process::exit(0);
-
-    Ok(())
 }
 
 #[cfg(test)]

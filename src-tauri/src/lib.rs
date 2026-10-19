@@ -1,6 +1,8 @@
+mod icons;
 pub mod registry;
 
 use registry::{BackupInfo, Entry, NewEntry, Target};
+use std::collections::HashMap;
 
 #[tauri::command]
 fn list_entries() -> Vec<Entry> {
@@ -20,6 +22,31 @@ fn delete_entry(target: Target) -> Result<(), String> {
 #[tauri::command]
 fn create_entry(entry: NewEntry) -> Result<(), String> {
     registry::create_entry(&entry)
+}
+
+#[tauri::command]
+fn set_entry_icon(target: Target, icon: String) -> Result<(), String> {
+    registry::set_icon(&target, &icon)
+}
+
+#[tauri::command]
+fn load_icons(keys: Vec<String>) -> HashMap<String, String> {
+    registry::load_icons(&keys)
+}
+
+#[tauri::command]
+fn set_many_enabled(targets: Vec<Target>, enabled: bool) -> Vec<String> {
+    registry::set_many_enabled(&targets, enabled)
+}
+
+#[tauri::command]
+fn delete_many(targets: Vec<Target>) -> Vec<String> {
+    registry::delete_many(&targets)
+}
+
+#[tauri::command]
+fn cleanup_invalid() -> (usize, Vec<String>) {
+    registry::cleanup_invalid()
 }
 
 #[tauri::command]
@@ -60,6 +87,11 @@ pub fn run() {
             set_entry_enabled,
             delete_entry,
             create_entry,
+            set_entry_icon,
+            load_icons,
+            set_many_enabled,
+            delete_many,
+            cleanup_invalid,
             list_backups,
             restore_backup,
             win11_classic,
