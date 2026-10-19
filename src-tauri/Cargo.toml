@@ -2,6 +2,9 @@
 name = "menuforge"
 version = "0.1.0"
 description = "MenuForge — Windows 右键菜单管理器"
+license = "MIT"
+repository = "https://github.com/ducaoya/menuforge"
+homepage = "https://github.com/ducaoya/menuforge"
 authors = ["ducaoya <ducaoya@gmail.com>"]
 edition = "2021"
 rust-version = "1.77"

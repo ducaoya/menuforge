@@ -26,5 +26,11 @@
     "onlyBuiltDependencies": [
       "esbuild"
     ]
-  }
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git@github.com:ducaoya/menuforge.git"
+  },
+  "homepage": "https://github.com/ducaoya/menuforge"
 }
