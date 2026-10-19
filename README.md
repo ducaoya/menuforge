@@ -6,6 +6,7 @@
 
 - 列出系统所有**经典右键菜单项**（静态菜单项 + Shell 扩展处理器），7 个范围：文件、文件夹、文件夹空白处、驱动器、桌面背景、文件夹目录、全部对象
 - **真实图标**：从 exe / dll 提取（`ExtractIconEx` → PNG），带内存缓存；静态项可**点击图标自定义**（写入 `Icon` 值，如 `C:\App\app.exe,3`）
+- **图标可视化选择**：内置 `imageres.dll` / `shell32.dll` / `explorer.exe` 的系统图标网格；「选择文件」调用原生文件框挑选 `exe/dll/ico/cpl/ocx/mun/icl` 并自动列出其中所有图标
 - **多选批量操作**：复选 / Shift 连选 / `Ctrl+A` 全选 / `Delete` 删除，批量启用、禁用、删除
 - **一键启用 / 禁用**：静态项写 `LegacyDisable`，Shell 扩展写 Blocked 列表，均为可逆操作
 - **一键删除**：删除前自动全量备份到 `%APPDATA%\MenuForge\backups`，「备份」页可恢复
