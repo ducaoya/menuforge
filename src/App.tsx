@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { ReactNode } from "react";
-import { getCurrentWindow } from "@tauri-apps/api/window";
+import type { PointerEvent as ReactPointerEvent, ReactNode } from "react";
+import { getCurrentWindow, LogicalPosition } from "@tauri-apps/api/window";
 import {
   api,
   type BackupInfo,
@@ -44,6 +44,7 @@ export default function App() {
   const [loading, setLoading] = useState(true);
   const [maximized, setMaximized] = useState(false);
   const listRef = useRef<HTMLDivElement>(null);
+  const dragRef = useRef<{ sx: number; sy: number; wx: number; wy: number } | null>(null);
 
   const load = useCallback(async () => {
     const [list, isAdmin, classicMenu] = await Promise.all([
@@ -75,6 +76,13 @@ export default function App() {
     load();
     loadBackups();
   }, [load, loadBackups]);
+
+  useEffect(() => {
+    const un = win.onResized(async () => setMaximized(await win.isMaximized()));
+    return () => {
+      un.then((f) => f()).catch(() => {});
+    };
+  }, []);
 
   useEffect(() => {
     if (!toast) return;
@@ -118,6 +126,37 @@ export default function App() {
     [entries, selected],
   );
   const invalid = useMemo(() => entries.filter((e) => !e.valid), [entries]);
+
+  // 按住拖动窗口：松手立即停止（不再依赖系统的 move 模态循环）
+  const startDrag = async (e: ReactPointerEvent<HTMLElement>) => {
+    if (e.button !== 0) return;
+    if ((e.target as HTMLElement).closest("button")) return;
+    const factor = await win.scaleFactor();
+    const pos = (await win.outerPosition()).toLogical(factor);
+    dragRef.current = { sx: e.screenX, sy: e.screenY, wx: pos.x, wy: pos.y };
+    e.currentTarget.setPointerCapture(e.pointerId);
+  };
+
+  const moveDrag = (e: ReactPointerEvent<HTMLElement>) => {
+    const d = dragRef.current;
+    if (!d) return;
+    win.setPosition(new LogicalPosition(d.wx + e.screenX - d.sx, d.wy + e.screenY - d.sy));
+  };
+
+  const endDrag = (e: ReactPointerEvent<HTMLElement>) => {
+    if (!dragRef.current) return;
+    dragRef.current = null;
+    try {
+      e.currentTarget.releasePointerCapture(e.pointerId);
+    } catch {
+      /* ignore */
+    }
+  };
+
+  const toggleMax = async () => {
+    await win.toggleMaximize();
+    setMaximized(await win.isMaximized());
+  };
 
   const clickRow = (index: number, shift: boolean) => {
     const k = keyOf(visible[index]);
@@ -250,13 +289,18 @@ export default function App() {
   }, [visible, selected, selectedEntries]);
 
   return (
-    <div className="app">
-      <header className="titlebar" data-tauri-drag-region>
-        <div className="brand" data-tauri-drag-region>
-          <span className="brand-dot" data-tauri-drag-region />
-          <span className="brand-name" data-tauri-drag-region>
-            MenuForge
-          </span>
+    <div className={maximized ? "app maximized" : "app"}>
+      <header
+        className="titlebar"
+        onPointerDown={startDrag}
+        onPointerMove={moveDrag}
+        onPointerUp={endDrag}
+        onPointerCancel={endDrag}
+        onDoubleClick={toggleMax}
+      >
+        <div className="brand">
+          <span className="brand-dot" />
+          <span className="brand-name">MenuForge</span>
         </div>
         <div className="window-actions">
           <button className="win-btn" onClick={() => win.minimize()} title="最小化">
@@ -264,13 +308,7 @@ export default function App() {
               <path d="M2 5h6" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
             </svg>
           </button>
-          <button
-            className="win-btn"
-            onClick={() => {
-              win.toggleMaximize().then(() => setMaximized(!maximized));
-            }}
-            title={maximized ? "还原" : "最大化"}
-          >
+          <button className="win-btn" onClick={toggleMax} title={maximized ? "还原" : "最大化"}>
             <svg width="10" height="10" viewBox="0 0 10 10">
               <rect x="2.4" y="2.4" width="5.2" height="5.2" rx="1.4" stroke="currentColor" strokeWidth="1.1" fill="none" />
             </svg>

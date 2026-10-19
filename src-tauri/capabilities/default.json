@@ -2,14 +2,20 @@
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
   "description": "MenuForge 主窗口默认权限",
-  "windows": ["main"],
+  "windows": [
+    "main"
+  ],
   "permissions": [
     "core:default",
-    "core:window:allow-start-dragging",
-    "core:window:allow-minimize",
+    "core:window:allow-close",
+    "core:window:allow-is-maximized",
     "core:window:allow-maximize",
-    "core:window:allow-unmaximize",
+    "core:window:allow-minimize",
+    "core:window:allow-outer-position",
+    "core:window:allow-scale-factor",
+    "core:window:allow-set-position",
+    "core:window:allow-start-dragging",
     "core:window:allow-toggle-maximize",
-    "core:window:allow-close"
+    "core:window:allow-unmaximize"
   ]
 }
