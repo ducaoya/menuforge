@@ -269,7 +269,7 @@ button {
   display: flex;
   align-items: center;
   gap: 10px;
-  height: 60px;
+  height: 42px;
   padding: 0 0 12px;
   flex: none;
 }
