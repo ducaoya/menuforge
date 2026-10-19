@@ -1,4 +1,4 @@
-mod registry;
+pub mod registry;
 
 use registry::{BackupInfo, Entry, NewEntry, Target};
 
