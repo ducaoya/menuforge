@@ -59,6 +59,7 @@ export const api = {
   icons: (keys: string[]) => invoke<Record<string, string>>("load_icons", { keys }),
   backups: () => invoke<BackupInfo[]>("list_backups"),
   restore: (file: string) => invoke<void>("restore_backup", { file }),
+  deleteBackup: (file: string) => invoke<void>("delete_backup", { file }),
   win11Classic: () => invoke<boolean>("win11_classic"),
   setWin11Classic: (enabled: boolean) =>
     invoke<void>("set_win11_classic", { enabled }),

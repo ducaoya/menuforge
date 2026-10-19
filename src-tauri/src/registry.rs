@@ -574,6 +574,11 @@ pub fn list_backups() -> Vec<BackupInfo> {
     out
 }
 
+pub fn delete_backup(file: &str) -> Result<(), String> {
+    let path = backup_dir().join(file);
+    std::fs::remove_file(path).map_err(|e| format!("删除备份失败：{e}"))
+}
+
 pub fn restore_backup(file: &str) -> Result<(), String> {
     let path = backup_dir().join(file);
     let text = std::fs::read_to_string(&path).map_err(|e| e.to_string())?;

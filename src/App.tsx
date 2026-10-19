@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { PointerEvent as ReactPointerEvent, ReactNode } from "react";
-import { getCurrentWindow, LogicalPosition } from "@tauri-apps/api/window";
+import type { ReactNode } from "react";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import {
   api,
   type BackupInfo,
@@ -44,7 +44,8 @@ export default function App() {
   const [loading, setLoading] = useState(true);
   const [maximized, setMaximized] = useState(false);
   const listRef = useRef<HTMLDivElement>(null);
-  const dragRef = useRef<{ sx: number; sy: number; wx: number; wy: number } | null>(null);
+  const [showSystem, setShowSystem] = useState(true);
+  const [pendingDeleteBackup, setPendingDeleteBackup] = useState<BackupInfo | null>(null);
 
   const load = useCallback(async () => {
     const [list, isAdmin, classicMenu] = await Promise.all([
@@ -101,6 +102,7 @@ export default function App() {
   const visible = useMemo(() => {
     const q = query.trim().toLowerCase();
     return entries.filter((e) => {
+      if (!showSystem && e.hive === "HKLM") return false;
       if (scope !== "*" && e.scope !== scope) return false;
       if (!q) return true;
       return (
@@ -109,7 +111,7 @@ export default function App() {
         e.command.toLowerCase().includes(q)
       );
     });
-  }, [entries, scope, query]);
+  }, [entries, scope, query, showSystem]);
 
   const groups = useMemo(() => {
     const map = new Map<string, { e: Entry; i: number }[]>();
@@ -127,38 +129,16 @@ export default function App() {
   );
   const invalid = useMemo(() => entries.filter((e) => !e.valid), [entries]);
 
-  // 按住拖动窗口：松手立即停止（不再依赖系统的 move 模态循环）
-  const startDrag = async (e: ReactPointerEvent<HTMLElement>) => {
-    if (e.button !== 0) return;
-    if ((e.target as HTMLElement).closest("button")) return;
-    const factor = await win.scaleFactor();
-    const pos = (await win.outerPosition()).toLogical(factor);
-    dragRef.current = { sx: e.screenX, sy: e.screenY, wx: pos.x, wy: pos.y };
-    e.currentTarget.setPointerCapture(e.pointerId);
-  };
-
-  const moveDrag = (e: ReactPointerEvent<HTMLElement>) => {
-    const d = dragRef.current;
-    if (!d) return;
-    win.setPosition(new LogicalPosition(d.wx + e.screenX - d.sx, d.wy + e.screenY - d.sy));
-  };
-
-  const endDrag = (e: ReactPointerEvent<HTMLElement>) => {
-    if (!dragRef.current) return;
-    dragRef.current = null;
-    try {
-      e.currentTarget.releasePointerCapture(e.pointerId);
-    } catch {
-      /* ignore */
-    }
-  };
-
   const toggleMax = async () => {
     await win.toggleMaximize();
     setMaximized(await win.isMaximized());
   };
 
   const clickRow = (index: number, shift: boolean) => {
+    if (visible[index].hive === "HKLM") {
+      say("err", "系统级菜单项不支持多选");
+      return;
+    }
     const k = keyOf(visible[index]);
     setSelected((prev) => {
       const next = new Set(prev);
@@ -258,6 +238,20 @@ export default function App() {
     }
   };
 
+  const removeBackup = async (file: string) => {
+    setBusy(true);
+    try {
+      await api.deleteBackup(file);
+      setPendingDeleteBackup(null);
+      await loadBackups();
+      say("ok", "备份已删除");
+    } catch (err) {
+      say("err", String(err));
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const saveIcon = async (e: Entry, value: string) => {
     setBusy(true);
     try {
@@ -277,7 +271,7 @@ export default function App() {
       const typing = document.activeElement?.tagName === "INPUT";
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "a" && !typing) {
         event.preventDefault();
-        setSelected(new Set(visible.map(keyOf)));
+        setSelected(new Set(visible.filter((e) => e.hive === "HKCU").map(keyOf)));
       }
       if (event.key === "Escape") setSelected(new Set());
       if (event.key === "Delete" && selected.size > 0 && !typing) {
@@ -290,17 +284,12 @@ export default function App() {
 
   return (
     <div className={maximized ? "app maximized" : "app"}>
-      <header
-        className="titlebar"
-        onPointerDown={startDrag}
-        onPointerMove={moveDrag}
-        onPointerUp={endDrag}
-        onPointerCancel={endDrag}
-        onDoubleClick={toggleMax}
-      >
-        <div className="brand">
-          <span className="brand-dot" />
-          <span className="brand-name">MenuForge</span>
+      <header className="titlebar" data-tauri-drag-region onDoubleClick={toggleMax}>
+        <div className="brand" data-tauri-drag-region>
+          <span className="brand-dot" data-tauri-drag-region />
+          <span className="brand-name" data-tauri-drag-region>
+            MenuForge
+          </span>
         </div>
         <div className="window-actions">
           <button className="win-btn" onClick={() => win.minimize()} title="最小化">
@@ -445,6 +434,10 @@ export default function App() {
                     onChange={(e) => setQuery(e.target.value)}
                   />
                 </div>
+                <label className="toolbar-switch" title="显示 HKLM 系统级菜单项">
+                  <span>系统项</span>
+                  <Switch on={showSystem} onClick={() => setShowSystem(!showSystem)} />
+                </label>
                 <button className="icon-btn refresh" onClick={() => (load(), loadBackups())} disabled={busy} title="刷新">
                   <svg width="13" height="13" viewBox="0 0 14 14">
                     <path
@@ -493,6 +486,7 @@ export default function App() {
                             <input
                               type="checkbox"
                               checked={isSel}
+                              disabled={e.hive === "HKLM"}
                               onChange={() =>
                                 setSelected((prev) => {
                                   const next = new Set(prev);
@@ -600,6 +594,16 @@ export default function App() {
                           <button className="pill-btn" onClick={() => restore(b.file)} disabled={busy}>
                             恢复
                           </button>
+                          <button
+                            className="del-btn"
+                            title="删除备份"
+                            disabled={busy}
+                            onClick={() => setPendingDeleteBackup(b)}
+                          >
+                            <svg width="11" height="11" viewBox="0 0 12 12">
+                              <path d="M3 3l6 6M9 3l-6 6" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+                            </svg>
+                          </button>
                         </div>
                       </div>
                     ))}
@@ -646,7 +650,37 @@ export default function App() {
         />
       )}
 
-      {toast && <div className={`toast ${toast.kind}`}>{toast.text}</div>}
+      {pendingDeleteBackup && (
+        <ConfirmDialog
+          title="删除这条备份？"
+          body={`${pendingDeleteBackup.title} · 删除后无法恢复。`}
+          confirmText="删除"
+          danger
+          busy={busy}
+          onCancel={() => setPendingDeleteBackup(null)}
+          onConfirm={() => removeBackup(pendingDeleteBackup.file)}
+        />
+      )}
+
+      {toast && (
+        <div className={`toast ${toast.kind}`}>
+          <span className="toast-icon">
+            {toast.kind === "ok" ? (
+              <svg width="14" height="14" viewBox="0 0 14 14">
+                <circle cx="7" cy="7" r="6.2" fill="currentColor" opacity="0.18" />
+                <path d="M4.3 7.2l1.9 1.9 3.5-3.7" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" fill="none" />
+              </svg>
+            ) : (
+              <svg width="14" height="14" viewBox="0 0 14 14">
+                <circle cx="7" cy="7" r="6.2" fill="currentColor" opacity="0.18" />
+                <path d="M7 4v4.2" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+                <circle cx="7" cy="10.4" r="0.95" fill="currentColor" />
+              </svg>
+            )}
+          </span>
+          <span>{toast.text}</span>
+        </div>
+      )}
     </div>
   );
 }
@@ -675,6 +709,70 @@ function Switch({
     >
       <span />
     </button>
+  );
+}
+
+function Select({
+  value,
+  options,
+  onChange,
+}: {
+  value: string;
+  options: { value: string; label: string }[];
+  onChange: (value: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const boxRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (e: MouseEvent) => {
+      if (!boxRef.current?.contains(e.target as Node)) setOpen(false);
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setOpen(false);
+    };
+    window.addEventListener("mousedown", onDown);
+    window.addEventListener("keydown", onKey);
+    return () => {
+      window.removeEventListener("mousedown", onDown);
+      window.removeEventListener("keydown", onKey);
+    };
+  }, [open]);
+
+  const current = options.find((o) => o.value === value);
+
+  return (
+    <div className={open ? "select open" : "select"} ref={boxRef}>
+      <button className="select-trigger" onClick={() => setOpen(!open)} type="button">
+        <span>{current?.label ?? value}</span>
+        <svg width="10" height="10" viewBox="0 0 10 10" className="select-caret">
+          <path d="M2.4 4l2.6 2.8L7.6 4" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" fill="none" />
+        </svg>
+      </button>
+      {open && (
+        <div className="select-menu">
+          {options.map((o) => (
+            <button
+              key={o.value}
+              type="button"
+              className={o.value === value ? "select-item active" : "select-item"}
+              onClick={() => {
+                onChange(o.value);
+                setOpen(false);
+              }}
+            >
+              <span>{o.label}</span>
+              {o.value === value && (
+                <svg width="11" height="11" viewBox="0 0 12 12">
+                  <path d="M2.6 6.2l2.2 2.2 4.6-4.8" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" fill="none" />
+                </svg>
+              )}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -855,22 +953,24 @@ function CreateDialog({
         </label>
         <label className="field-label">
           显示在
-          <select className="field" value={form.scope} onChange={(e) => set({ scope: e.target.value })}>
-            {SCOPES.map((s) => (
-              <option key={s.id} value={s.id}>
-                {s.label}
-              </option>
-            ))}
-          </select>
+          <Select
+            value={form.scope}
+            options={SCOPES.map((s) => ({ value: s.id, label: s.label }))}
+            onChange={(v) => set({ scope: v })}
+          />
         </label>
       </div>
 
       <label className="field-label">
         写入位置
-        <select className="field" value={form.hive} onChange={(e) => set({ hive: e.target.value })}>
-          <option value="HKCU">当前用户（无需管理员）</option>
-          <option value="HKLM">所有用户（需要管理员）</option>
-        </select>
+        <Select
+          value={form.hive}
+          options={[
+            { value: "HKCU", label: "当前用户（无需管理员）" },
+            { value: "HKLM", label: "所有用户（需要管理员）" },
+          ]}
+          onChange={(v) => set({ hive: v })}
+        />
       </label>
 
       <div className="sheet-actions">

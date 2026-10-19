@@ -60,6 +60,11 @@ fn restore_backup(file: String) -> Result<(), String> {
 }
 
 #[tauri::command]
+fn delete_backup(file: String) -> Result<(), String> {
+    registry::delete_backup(&file)
+}
+
+#[tauri::command]
 fn win11_classic() -> bool {
     registry::win11_classic()
 }
@@ -134,6 +139,7 @@ pub fn run() {
             cleanup_invalid,
             list_backups,
             restore_backup,
+            delete_backup,
             win11_classic,
             set_win11_classic,
             is_admin,
