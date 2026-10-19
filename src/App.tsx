@@ -147,7 +147,12 @@ export default function App() {
           {!admin && (
             <button
               className="btn btn-warn"
-              onClick={() => api.relaunch().catch((e) => say("err", String(e)))}
+              onClick={() =>
+                api
+                  .relaunch()
+                  .then(() => say("ok", "已请求提权，请在 UAC 弹窗中确认"))
+                  .catch((e) => say("err", String(e)))
+              }
             >
               以管理员身份重启
             </button>

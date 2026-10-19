@@ -560,7 +560,14 @@ pub fn relaunch_as_admin() -> Result<(), String> {
         .args(["-NoProfile", "-WindowStyle", "Hidden", "-Command", &script])
         .spawn()
         .map_err(|e| e.to_string())?;
+
+    // 发布版：提权实例接管后退出本进程。
+    // dev 模式：不能退出——`tauri dev` 会连同 vite dev server 一起结束，
+    // 提权后的实例就再也拉不到 devUrl，只剩白屏 / 拒绝连接。
+    #[cfg(not(debug_assertions))]
     std::process::exit(0);
+
+    Ok(())
 }
 
 #[cfg(test)]
